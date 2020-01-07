@@ -28,17 +28,22 @@ app.use(passport.session());
 mongoose.connect('mongodb://localhost:27017/userDB', {useNewUrlParser: true, useUnifiedTopology: true});
 mongoose.set('useCreateIndex', true);
 
+const secretSchema = {
+  secret: String
+};
+
 const userSchema = new mongoose.Schema({
   email: String,
   password: String,
   googleId: String,
-  secret: String
+  secrets: [secretSchema]
 });
 
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
 
 const User = new mongoose.model('User', userSchema);
+const Secret = new mongoose.model('Secret', secretSchema);
 
 passport.use(User.createStrategy());
 
@@ -65,12 +70,14 @@ passport.use(new GoogleStrategy({
   }
 ));
 
-//////
+//////// ******* ROUTES ******* ////////
 
 app.get('/', function(req, res) {
   res.render('home');
 });
 
+
+//////// Google OAuth Routes ////////
 app.get('/auth/google', passport.authenticate('google', {scope: ['profile']})
 );
 
@@ -81,57 +88,13 @@ app.get('/auth/google/secrets',
     res.redirect('/secrets');
   });
 
-app.get('/login', function(req, res) {
-  res.render('login');
-});
 
-app.get('/register', function(req, res) {
+//////// REGISTER ////////
+app.route('/register')
+.get(function(req, res) {
   res.render('register');
-});
-
-app.get('/secrets', function(req, res) {
-  User.find({'secret': {$ne: null}}, function(err, foundUsers) {
-    if (err) {
-      console.log(err);
-    } else {
-      if (foundUsers) {
-        res.render('secrets', {usersWithSecrets: foundUsers});
-      }
-    }
-  });
-});
-
-app.get('/submit', function(req, res) {
-  if (req.isAuthenticated()) {
-    res.render('submit');
-  } else {
-    res.redirect('/login');
-  }
-});
-
-app.post('/submit', function(req, res) {
-  const submittedSecret = req.body.secret;
-
-  User.findById(req.user.id, function(err, foundUser) {
-    if (err) {
-      console.log(err);
-    } else {
-      if (foundUser) {
-        foundUser.secret = submittedSecret;
-        foundUser.save(function() {
-          res.redirect('/secrets');
-        });
-      }
-    }
-  });
-});
-
-app.get('/logout', function(req, res) {
-  req.logout();
-  res.redirect('/');
-});
-
-app.post('/register', function(req, res) {
+})
+.post(function(req, res) {
 
   User.register({username: req.body.username}, req.body.password, function(err, user) {
     if (err) {
@@ -146,7 +109,13 @@ app.post('/register', function(req, res) {
 
 });
 
-app.post('/login', function(req, res) {
+
+//////// LOGIN ////////
+app.route('/login')
+.get(function(req, res) {
+  res.render('login');
+})
+.post(function(req, res) {
 
   const user = new User({
     username: req.body.username,
@@ -162,11 +131,63 @@ app.post('/login', function(req, res) {
       });
     }
   });
-
 });
 
 
+//////// SECRETS ////////
+app.get('/secrets', function(req, res) {
+  Secret.find({}, function(err, allSecrets) {
+    if (err) {
+      console.log(err);
+    } else {
+      if (allSecrets) {
+        res.render('secrets', {allSecrets: allSecrets});
+      }
+    }
+  });
+});
 
+
+//////// SUBMIT ////////
+app.route('/submit')
+.get(function(req, res) {
+  if (req.isAuthenticated()) {
+    res.render('submit');
+  } else {
+    res.redirect('/login');
+  }
+})
+.post(function(req, res) {
+  const submittedSecret = req.body.secret;
+
+  const secret = new Secret({
+    secret: submittedSecret
+  });
+
+  User.findById(req.user.id, function(err, foundUser) {
+    if (err) {
+      console.log(err);
+    } else {
+      if (foundUser) {
+        foundUser.secrets.push(secret);
+        secret.save();
+        foundUser.save(function() {
+          res.redirect('/secrets');
+        });
+      }
+    }
+  });
+});
+
+
+//////// LOGOUT ////////
+app.get('/logout', function(req, res) {
+  req.logout();
+  res.redirect('/');
+});
+
+
+////////////////////////
 
 app.listen(3000, function() {
   console.log('Server started on port 3000');
